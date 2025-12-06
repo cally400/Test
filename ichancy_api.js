@@ -1,107 +1,152 @@
+// ichancy_api.js
 const axios = require("axios");
-const { CookieJar } = require("tough-cookie");
-const jar = new CookieJar();
-const USER_AGENT = "Mozilla/5.0 (Linux; Android 6.0.1; SM-G532F) Chrome/106.0.5249.126 Mobile Safari/537.36";
+const fs = require("fs-extra");
+const path = require("path");
+const { loginViaPuppeteer, loadCookies, saveCookies, COOKIE_FILE } = require("./ichancy_puppeteer");
+require("dotenv").config();
 
 const ORIGIN = "https://agents.ichancy.com";
-const SIGNIN_URL = `${ORIGIN}/global/api/User/signIn`;
-const CREATE_URL = `${ORIGIN}/global/api/Player/registerPlayer`;
-const STATISTICS_URL = `${ORIGIN}/global/api/Statistics/getPlayersStatisticsPro`;
-const DEPOSIT_URL = `${ORIGIN}/global/api/Player/depositToPlayer`;
-const WITHDRAW_URL = `${ORIGIN}/global/api/Player/withdrawFromPlayer`;
-const GET_BALANCE_URL = `${ORIGIN}/global/api/Player/getPlayerBalanceById`;
+const SIGNIN_URL = ORIGIN + "/global/api/User/signIn";
+const CREATE_URL = ORIGIN + "/global/api/Player/registerPlayer";
+const STATISTICS_URL = ORIGIN + "/global/api/Statistics/getPlayersStatisticsPro";
+const DEPOSIT_URL = ORIGIN + "/global/api/Player/depositToPlayer";
+const WITHDRAW_URL = ORIGIN + "/global/api/Player/withdrawFromPlayer";
+const GET_BALANCE_URL = ORIGIN + "/global/api/Player/getPlayerBalanceById";
 
-const AGENT_USERNAME = process.env.AGENT_USERNAME || "tsa_robert@tsa.com";
-const AGENT_PASSWORD = process.env.AGENT_PASSWORD || "K041@051kkk";
-const PARENT_ID = process.env.PARENT_ID || "2307909";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
-let isLoggedIn = false;
+async function cookiesToHeaderString(cookies) {
+  // cookies: array of {name, value, domain, ...}
+  if (!cookies || !cookies.length) return "";
+  return cookies.map(c => `${c.name}=${c.value}`).join("; ");
+}
 
-// تسجيل دخول الوكيل
-async function loginToAgent() {
+async function ensureLogged() {
+  let cookies = await loadCookies();
+  if (!cookies || cookies.length === 0) {
+    cookies = await loginViaPuppeteer(false); // during dev: show browser
+  }
+  return cookies;
+}
+
+// helper for requests with auto-retry login
+async function requestWithAuth(url, body) {
+  let cookies = await ensureLogged();
+  let cookieHeader = await cookiesToHeaderString(cookies);
   try {
-    const resp = await axios.post(SIGNIN_URL, { username: AGENT_USERNAME, password: AGENT_PASSWORD }, {
-      headers: { "User-Agent": USER_AGENT, "Origin": ORIGIN, "Content-Type": "application/json" },
-      jar, withCredentials: true
+    const res = await axios.post(url, body, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Origin": ORIGIN,
+        "Referer": ORIGIN + "/dashboard",
+        "Content-Type": "application/json",
+        "Cookie": cookieHeader
+      },
+      timeout: 20000
     });
-    const data = resp.data;
-    isLoggedIn = data.result || false;
-    return data.result || false;
+    const data = res.data;
+    // if response implies session invalid, force re-login
+    if (!data || data.result === false) {
+      // re-login and retry once
+      cookies = await loginViaPuppeteer(true);
+      cookieHeader = await cookiesToHeaderString(cookies);
+      const res2 = await axios.post(url, body, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Origin": ORIGIN,
+          "Referer": ORIGIN + "/dashboard",
+          "Content-Type": "application/json",
+          "Cookie": cookieHeader
+        },
+        timeout: 20000
+      });
+      return res2.data;
+    }
+    return data;
   } catch (err) {
-    console.error("Login failed:", err.message);
-    return false;
+    // if axios error, try re-login once
+    try {
+      cookies = await loginViaPuppeteer(true);
+      cookieHeader = await cookiesToHeaderString(cookies);
+      const res2 = await axios.post(url, body, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Origin": ORIGIN,
+          "Referer": ORIGIN + "/dashboard",
+          "Content-Type": "application/json",
+          "Cookie": cookieHeader
+        },
+        timeout: 20000
+      });
+      return res2.data;
+    } catch (e2) {
+      throw e2;
+    }
   }
 }
 
-// Retry wrapper
-async function withRetry(fn, ...args) {
-  if (!isLoggedIn) await loginToAgent();
-  let res = await fn(...args);
-  if (!res || res.status !== 200 || !res.data?.result) {
-    isLoggedIn = false;
-    await loginToAgent();
-    res = await fn(...args);
-  }
-  return res;
-}
-
-// إنشاء بيانات عشوائية
+// generate random login/pwd
 function generateRandomCredentials() {
   const login = "u" + Math.random().toString(36).substring(2, 9);
   const pwd = Math.random().toString(36).substring(2, 12);
   return { login, pwd };
 }
 
-// إنشاء لاعب جديد
-async function createPlayer() {
-  const { login, pwd } = generateRandomCredentials();
-  const email = `${login}@example.com`;
-  const payload = { player: { email, password: pwd, parentId: PARENT_ID, login } };
-
-  const resp = await axios.post(CREATE_URL, payload, {
-    headers: { "User-Agent": USER_AGENT, "Origin": ORIGIN, "Content-Type": "application/json" },
-    jar, withCredentials: true
-  });
-
-  return { status: resp.status, data: resp.data, login, pwd };
+// create player with provided login/pwd
+async function createPlayerWithCredentials(login, pwd, parentId = process.env.PARENT_ID) {
+  const payload = { player: { email: `${login}@tsa.com`, password: pwd, parentId, login } };
+  const data = await requestWithAuth(CREATE_URL, payload);
+  // after create, try to fetch playerId
+  const playerId = await getPlayerIdByLogin(login);
+  return { raw: data, playerId, email: `${login}@tsa.com` };
 }
 
-// شحن رصيد
+async function getPlayerIdByLogin(login) {
+  const body = { page: 1, pageSize: 100, filter: { login } };
+  const data = await requestWithAuth(STATISTICS_URL, body);
+  const records = data?.result?.records || [];
+  for (const r of records) {
+    if (r.username === login || r.login === login) return r.playerId || r.playerIdStr || r.id;
+  }
+  return null;
+}
+
 async function depositToPlayer(playerId, amount) {
-  const payload = { playerId, amount, currency: "NSP", currencyCode: "NSP", moneyStatus: 5 };
-  const resp = await axios.post(DEPOSIT_URL, payload, {
-    headers: { "User-Agent": USER_AGENT, "Origin": ORIGIN, "Content-Type": "application/json" },
-    jar, withCredentials: true
-  });
-  return { status: resp.status, data: resp.data };
+  const payload = { amount, comment: null, playerId, currencyCode: "NSP", currency: "NSP", moneyStatus: 5 };
+  const data = await requestWithAuth(DEPOSIT_URL, payload);
+  return data;
 }
 
-// سحب رصيد
 async function withdrawFromPlayer(playerId, amount) {
-  const payload = { playerId, amount, currency: "NSP", currencyCode: "NSP", moneyStatus: 5 };
-  const resp = await axios.post(WITHDRAW_URL, payload, {
-    headers: { "User-Agent": USER_AGENT, "Origin": ORIGIN, "Content-Type": "application/json" },
-    jar, withCredentials: true
-  });
-  return { status: resp.status, data: resp.data };
+  const payload = { amount, comment: null, playerId, currencyCode: "NSP", currency: "NSP", moneyStatus: 5 };
+  const data = await requestWithAuth(WITHDRAW_URL, payload);
+  return data;
 }
 
-// جلب الرصيد
 async function getPlayerBalance(playerId) {
   const payload = { playerId: String(playerId) };
-  const resp = await axios.post(GET_BALANCE_URL, payload, {
-    headers: { "User-Agent": USER_AGENT, "Origin": ORIGIN, "Content-Type": "application/json" },
-    jar, withCredentials: true
-  });
-  const balance = resp.data.result?.[0]?.balance || 0;
-  return { status: resp.status, data: resp.data, balance };
+  const data = await requestWithAuth(GET_BALANCE_URL, payload);
+  // extract balance from data.result
+  try {
+    const results = data.result;
+    const balance = Array.isArray(results) && results.length ? (results[0].balance || 0) : (results.balance || 0);
+    return { ok: true, balance, raw: data };
+  } catch (e) {
+    return { ok: false, balance: 0, raw: data };
+  }
+}
+
+async function checkPlayerExists(login) {
+  const pid = await getPlayerIdByLogin(login);
+  return pid !== null;
 }
 
 module.exports = {
-  loginToAgent,
-  withRetry,
-  createPlayer,
+  createPlayerWithCredentials,
+  getPlayerIdByLogin,
   depositToPlayer,
   withdrawFromPlayer,
-  getPlayerBalance
+  getPlayerBalance,
+  checkPlayerExists,
+  ensureLogged
 };
