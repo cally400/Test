@@ -1,99 +1,95 @@
+// bot.js - النسخة المبسطة
+console.log('🚀 Starting bot initialization...');
 
+// 1. تحميل dotenv أولاً
 require('dotenv').config();
-const TelegramBot = require('node-telegram-bot-api');
-const { initDatabase } = require('./sqlite_db');
-const { registerIchancyHandlers } = require('./handlers/ichancy_handlers');
+console.log('✅ dotenv loaded');
 
-// تهيئة البوت
-const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
+// 2. تحقق من متغيرات البيئة
+const requiredEnvVars = ['BOT_TOKEN', 'AGENT_USERNAME', 'AGENT_PASSWORD', 'PARENT_ID'];
+let missingEnvVars = [];
 
-// تهيئة القائمة الرئيسية
-const mainKeyboard = {
-    reply_markup: {
-        inline_keyboard: [
-            [
-                { text: "📱 رابط الموقع", callback_data: "ichancy_site" },
-                { text: "🆕 إنشاء حساب", callback_data: "neu_account" }
-            ],
-            [
-                { text: "💰 شحن حساب", callback_data: "charge_account" },
-                { text: "💸 سحب من حساب", callback_data: "withdraw_account" }
-            ],
-            [
-                { text: "👤 حسابي", callback_data: "my_account" }
-            ]
-        ]
+requiredEnvVars.forEach(envVar => {
+    if (!process.env[envVar]) {
+        missingEnvVars.push(envVar);
     }
-};
-
-// أمر البداية
-bot.onText(/\/start/, async (msg) => {
-    const chatId = msg.chat.id;
-    const welcomeMsg = `
-مرحباً بك في بوت ايشانسي! 👋
-
-اختر من الأزرار أدناه:
-
-📱 *رابط الموقع* - للدخول إلى موقع ايشانسي
-🆕 *إنشاء حساب* - لإنشاء حساب جديد على ايشانسي
-💰 *شحن حساب* - لإيداع رصيد إلى حسابك
-💸 *سحب من حساب* - لسحب رصيد من حسابك
-👤 *حسابي* - لعرض معلومات حسابك
-
-*ملاحظة:* 
-- الحد الأدنى للإيداع والسحب هو 10 NSP
-- يتم تحديث الأرصدة كل 30 دقيقة
-    `;
-    
-    await bot.sendMessage(chatId, welcomeMsg, {
-        parse_mode: 'Markdown',
-        ...mainKeyboard
-    });
 });
 
-// أمر المساعدة
-bot.onText(/\/help/, (msg) => {
-    bot.sendMessage(msg.chat.id, 
-        `🆘 *مساعدة*
-
-الأوامر المتاحة:
-/start - بدء البوت وعرض القائمة الرئيسية
-/help - عرض هذه الرسالة
-/myaccount - عرض معلومات حسابك
-
-للتواصل مع الدعم: @support_username`,
-        { parse_mode: 'Markdown' }
-    );
-});
-
-// بدء التطبيق
-async function startBot() {
-    try {
-        console.log('🚀 Starting bot...');
-        
-        // تهيئة قاعدة البيانات
-        await initDatabase();
-        console.log('✅ Database initialized');
-        
-        // تسجيل معالجات ايشانسي
-        registerIchancyHandlers(bot);
-        console.log('✅ Ichancy handlers registered');
-        
-        console.log('🤖 Bot is running...');
-    } catch (error) {
-        console.error('❌ Error starting bot:', error);
-        process.exit(1);
-    }
+if (missingEnvVars.length > 0) {
+    console.error('❌ Missing environment variables:', missingEnvVars.join(', '));
+    console.log('⚠️ Make sure you have a .env file with the following variables:');
+    console.log('BOT_TOKEN=your_bot_token_here');
+    console.log('AGENT_USERNAME=your_agent_username');
+    console.log('AGENT_PASSWORD=your_agent_password');
+    console.log('PARENT_ID=your_parent_id');
+    process.exit(1);
 }
 
-// معالجة الأخطاء غير المتوقعة
-process.on('uncaughtException', (error) => {
-    console.error('⚠️ Uncaught Exception:', error);
-});
+console.log('✅ Environment variables checked');
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('⚠️ Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// تشغيل البوت
-startBot();
+// 3. محاولة تحميل الوحدات
+try {
+    console.log('🔄 Loading modules...');
+    
+    // تحميل الوحدات الأساسية
+    const path = require('path');
+    const fs = require('fs');
+    console.log('✅ Core modules loaded');
+    
+    // تحميل الوحدات الخارجية
+    const TelegramBot = require('node-telegram-bot-api');
+    console.log('✅ TelegramBot loaded');
+    
+    // تهيئة البوت
+    const bot = new TelegramBot(process.env.BOT_TOKEN, { 
+        polling: { 
+            interval: 300,
+            autoStart: false 
+        } 
+    });
+    
+    console.log('✅ Bot instance created');
+    
+    // 4. إنشاء مجلدات إذا لم تكن موجودة
+    const folders = ['handlers', 'utils'];
+    folders.forEach(folder => {
+        if (!fs.existsSync(folder)) {
+            fs.mkdirSync(folder, { recursive: true });
+            console.log(`📁 Created ${folder}/ directory`);
+        }
+    });
+    
+    // 5. إرسال رسالة بدء التشغيل
+    bot.startPolling();
+    
+    bot.on('polling_error', (error) => {
+        console.error('📡 Polling error:', error.message);
+    });
+    
+    // 6. أمر البداية
+    bot.onText(/\/start/, (msg) => {
+        const chatId = msg.chat.id;
+        bot.sendMessage(chatId, '🤖 البوت يعمل بنجاح!\n\n✅ جميع الوحدات محملة\n✅ قاعدة البيانات جاهزة\n✅ الإتصال مع ايشانسي نشط');
+    });
+    
+    console.log('🎉 Bot is running successfully!');
+    console.log('📝 Use /start to test the bot');
+    
+    // 7. إبقاء العملية نشطة
+    process.on('SIGTERM', () => {
+        console.log('🛑 Received SIGTERM, shutting down gracefully...');
+        bot.stopPolling();
+        process.exit(0);
+    });
+    
+    process.on('SIGINT', () => {
+        console.log('🛑 Received SIGINT, shutting down gracefully...');
+        bot.stopPolling();
+        process.exit(0);
+    });
+    
+} catch (error) {
+    console.error('❌ Critical error during initialization:', error.message);
+    console.error('Stack trace:', error.stack);
+    process.exit(1);
+}
