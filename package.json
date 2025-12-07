@@ -1,7 +1,7 @@
-
 {
   "name": "telegram-bot-ichancy",
   "version": "1.0.0",
+  "type": "commonjs",
   "description": "Telegram bot for Ichancy integration",
   "main": "bot.js",
   "scripts": {
