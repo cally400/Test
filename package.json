@@ -1,22 +1,27 @@
 {
   "name": "telegram-bot-ichancy",
   "version": "1.0.0",
-  "type": "commonjs",
-  "description": "Telegram bot for Ichancy integration",
+  "description": "Telegram Bot for Ichancy Integration",
   "main": "bot.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node bot.js",
-    "dev": "nodemon bot.js"
+    "dev": "nodemon bot.js",
+    "test": "node test_imports.js"
   },
+  "keywords": ["telegram", "bot", "ichancy"],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
-    "node-telegram-bot-api": "^0.61.0",
-    "cloudscraper": "^4.6.0",
-    "winston": "^3.11.0",
-    "luxon": "^3.4.4",
-    "sqlite3": "^5.1.6",
-    "dotenv": "^16.3.1"
+    "node-telegram-bot-api": "0.61.0",
+    "cloudscraper": "4.6.0",
+    "winston": "3.11.0",
+    "luxon": "3.4.4",
+    "sqlite3": "5.1.6",
+    "dotenv": "16.3.1"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }
