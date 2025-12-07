@@ -1,18 +1,23 @@
 {
   "name": "telegram-bot-ichancy",
   "version": "1.0.0",
-  "description": "Telegram Bot for Ichancy",
-  "main": "bot.js",
+  "description": "Telegram Bot for Ichancy Integration",
+  "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "nodemon bot.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.61.0",
+    "cloudscraper": "^4.6.0",
+    "winston": "^3.11.0",
+    "luxon": "^3.4.4",
+    "sqlite3": "^5.1.6",
     "dotenv": "^16.3.1"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }
