@@ -1,0 +1,17 @@
+[phases.setup]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "node server.js"
+port = 3000
+
+[variables]
+NODE_ENV = "production"
+
+[healthcheck]
+path = "/health"
+interval = "30s"
+timeout = "5s"
